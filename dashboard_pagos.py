@@ -26,29 +26,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# MAPEO DE COLUMNAS (CORREGIDO)
-# ============================================
-
-COLUMNAS_MAPEO = {
-    'DIRECCION EJECUTIVA (CHIEF)': 'DIRECCION_EJECUTIVA',
-    'DIRECCION': 'DIRECCION',
-    'GERENCIA': 'GERENCIA',
-    'EMPRESA': 'EMPRESA',
-    'NRO SOLICITUD en ODOO': 'NRO_SOLICITUD',
-    'NRO PDC': 'NRO_PDC',
-    'TIPO DE PARTIDA': 'TIPO_PARTIDA',
-    'NOMBRE DEL PROYECTO (solo para CAPEX)': 'PROYECTO',
-    'CATEGORIA DE LA PARTIDA': 'CATEGORIA',
-    'DETALLE DE LA PARTIDA': 'DETALLE',
-    'INFORMACION DEL GASTO': 'INFORMACION',
-    'MONTO PLAN USD': 'MONTO',
-    'MONEDA DE PAGO': 'MONEDA',
-    'FORMA DE PAGO': 'FORMA_PAGO',
-    'OBSERVACION': 'OBSERVACION',
-}
-
-# ============================================
-# FUNCIONES DE PROCESAMIENTO
+# MAPEO DE COLUMNAS (CORREGIDO - VERSIÓN FINAL)
 # ============================================
 
 def cargar_y_procesar_datos(file, tasa_bcv=40.0):
@@ -60,21 +38,46 @@ def cargar_y_procesar_datos(file, tasa_bcv=40.0):
         # Limpiar nombres de columnas (eliminar espacios extra)
         df.columns = df.columns.str.strip()
         
-        # Renombrar columnas usando el mapeo
-        columnas_renombrar = {}
-        for col_original, col_nueva in COLUMNAS_MAPEO.items():
-            if col_original in df.columns:
-                columnas_renombrar[col_original] = col_nueva
+        # Mostrar columnas para debug (opcional)
+        # st.write("Columnas encontradas:", df.columns.tolist())
         
-        df = df.rename(columns=columnas_renombrar)
+        # Renombrar columnas manualmente (más robusto)
+        df = df.rename(columns={
+            'DIRECCION EJECUTIVA (CHIEF)': 'DIRECCION_EJECUTIVA',
+            'DIRECCION': 'DIRECCION',
+            'GERENCIA': 'GERENCIA',
+            'EMPRESA': 'EMPRESA',
+            'NRO SOLICITUD en ODOO': 'NRO_SOLICITUD',
+            'NRO PDC': 'NRO_PDC',
+            'TIPO DE PARTIDA': 'TIPO_PARTIDA',
+            'NOMBRE DEL PROYECTO (solo para CAPEX)': 'PROYECTO',
+            'CATEGORIA DE LA PARTIDA': 'CATEGORIA',
+            'DETALLE DE LA PARTIDA': 'DETALLE',
+            'INFORMACION DEL GASTO': 'INFORMACION',
+            'MONTO PLAN USD': 'MONTO_PLAN_USD',  # ← CORREGIDO: ahora tiene el nombre completo
+            'MONEDA DE PAGO': 'MONEDA',
+            'FORMA DE PAGO': 'FORMA_PAGO',
+            'OBSERVACION': 'OBSERVACION',
+        })
         
-        # Verificar columnas críticas
-        columnas_requeridas = ['CATEGORIA', 'MONTO']
-        for col in columnas_requeridas:
-            if col not in df.columns:
-                # Buscar columnas similares
-                columnas_posibles = [c for c in df.columns if 'MONTO' in c.upper() or 'CATEGORIA' in c.upper()]
-                st.warning(f"⚠️ No se encontró la columna '{col}'. Columnas disponibles similares: {columnas_posibles}")
+        # Verificar si existe la columna MONTO_PLAN_USD
+        if 'MONTO_PLAN_USD' not in df.columns:
+            # Buscar cualquier columna que tenga "MONTO" en el nombre
+            columnas_monto = [col for col in df.columns if 'MONTO' in col.upper()]
+            if columnas_monto:
+                st.warning(f"⚠️ Usando columna '{columnas_monto[0]}' como MONTO")
+                df['MONTO_PLAN_USD'] = df[columnas_monto[0]]
+            else:
+                st.error("❌ No se encontró ninguna columna de montos")
+                return pd.DataFrame()
+        
+        # Verificar si existe la columna CATEGORIA
+        if 'CATEGORIA' not in df.columns:
+            columnas_categoria = [col for col in df.columns if 'CATEGORIA' in col.upper()]
+            if columnas_categoria:
+                df['CATEGORIA'] = df[columnas_categoria[0]]
+            else:
+                st.error("❌ No se encontró ninguna columna de categoría")
                 return pd.DataFrame()
         
         # Limpiar datos
@@ -82,11 +85,11 @@ def cargar_y_procesar_datos(file, tasa_bcv=40.0):
         df = df[df['CATEGORIA'].notna()]
         
         # Convertir montos a numérico
-        df['MONTO'] = pd.to_numeric(df['MONTO'], errors='coerce').fillna(0)
+        df['MONTO_PLAN_USD'] = pd.to_numeric(df['MONTO_PLAN_USD'], errors='coerce').fillna(0)
         
         # Calcular MONTO_EN_USD según la moneda
         def calcular_monto_usd(row):
-            monto = row['MONTO']
+            monto = row['MONTO_PLAN_USD']
             moneda = str(row['MONEDA']).strip().upper() if pd.notna(row['MONEDA']) else 'USD'
             
             if pd.isna(monto) or monto == 0:
@@ -115,7 +118,7 @@ def cargar_y_procesar_datos(file, tasa_bcv=40.0):
         
     except Exception as e:
         st.error(f"❌ Error al procesar: {str(e)}")
-        st.info("💡 Asegúrate de que el archivo sea el correcto")
+        st.info("💡 Asegúrate de que el archivo tenga las columnas: CATEGORIA DE LA PARTIDA, MONTO PLAN USD, MONEDA DE PAGO")
         return pd.DataFrame()
 
 # ============================================
@@ -147,6 +150,9 @@ def grafico_distribucion_tipo(df):
     data = df.groupby('TIPO')['MONTO_EN_USD'].sum().reset_index()
     data = data[data['TIPO'] != 'OTROS']
     
+    if data.empty:
+        return None
+    
     fig = px.pie(
         data, values='MONTO_EN_USD', names='TIPO',
         title='Distribución OPEX vs CAPEX',
@@ -161,6 +167,9 @@ def grafico_top_categorias(df, n=10):
     data = df.groupby('CATEGORIA_LIMPIA')['MONTO_EN_USD'].sum().reset_index()
     data = data.sort_values('MONTO_EN_USD', ascending=True).tail(n)
     
+    if data.empty:
+        return None
+    
     fig = px.bar(
         data, x='MONTO_EN_USD', y='CATEGORIA_LIMPIA', orientation='h',
         title=f'Top {n} Categorías de Gasto',
@@ -173,6 +182,9 @@ def grafico_barras_apiladas(df):
     """Gráfico de barras apiladas OPEX vs CAPEX por categoría"""
     data = df.groupby(['CATEGORIA_LIMPIA', 'TIPO'])['MONTO_EN_USD'].sum().reset_index()
     data = data[data['TIPO'] != 'OTROS']
+    
+    if data.empty:
+        return None
     
     totals = data.groupby('CATEGORIA_LIMPIA')['MONTO_EN_USD'].sum().reset_index()
     top_cats = totals.sort_values('MONTO_EN_USD', ascending=False).head(10)['CATEGORIA_LIMPIA'].tolist()
@@ -193,6 +205,9 @@ def grafico_cascada_direccion(df):
     data = data[data['DIRECCION'].notna() & (data['DIRECCION'] != '')]
     data = data.sort_values('MONTO_EN_USD', ascending=False)
     
+    if data.empty:
+        return None
+    
     fig = px.bar(
         data, x='DIRECCION', y='MONTO_EN_USD',
         title='Gasto por Dirección',
@@ -211,7 +226,7 @@ def grafico_detalle_gerencia(df, direccion):
     data = data[data['GERENCIA'].notna() & (data['GERENCIA'] != '')]
     data = data.sort_values('MONTO_EN_USD', ascending=False)
     
-    if len(data) == 0:
+    if data.empty:
         return None
     
     fig = px.bar(
@@ -253,8 +268,12 @@ def main():
         # Sidebar: filtros después de cargar datos
         with st.sidebar:
             tipo = st.selectbox('Tipo de Partida', ['TODOS', 'OPEX', 'CAPEX'])
-            direcciones = ['TODAS'] + sorted(df['DIRECCION'].dropna().unique().tolist())
+            
+            direcciones = ['TODAS']
+            if 'DIRECCION' in df.columns:
+                direcciones = ['TODAS'] + sorted(df['DIRECCION'].dropna().unique().tolist())
             direccion = st.selectbox('Dirección', direcciones)
+            
             categorias = ['TODAS'] + sorted(df['CATEGORIA_LIMPIA'].dropna().unique().tolist())
             categoria = st.selectbox('Categoría', categorias)
             busqueda = st.text_input('🔍 Buscar', placeholder='NRO PDC, Detalle...')
@@ -264,11 +283,11 @@ def main():
         
         if tipo != 'TODOS':
             df_filtrado = df_filtrado[df_filtrado['TIPO'] == tipo]
-        if direccion != 'TODAS':
+        if direccion != 'TODAS' and 'DIRECCION' in df_filtrado.columns:
             df_filtrado = df_filtrado[df_filtrado['DIRECCION'] == direccion]
         if categoria != 'TODAS':
             df_filtrado = df_filtrado[df_filtrado['CATEGORIA_LIMPIA'] == categoria]
-        if busqueda:
+        if busqueda and 'DETALLE' in df_filtrado.columns:
             busqueda_lower = busqueda.lower()
             df_filtrado = df_filtrado[
                 df_filtrado['DETALLE'].str.lower().str.contains(busqueda_lower, na=False) |
@@ -288,44 +307,54 @@ def main():
         # FILA 1: Distribución y Top Categorías
         col1, col2 = st.columns(2)
         with col1:
-            st.plotly_chart(grafico_distribucion_tipo(df_filtrado), use_container_width=True)
+            fig = grafico_distribucion_tipo(df_filtrado)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
         with col2:
-            st.plotly_chart(grafico_top_categorias(df_filtrado), use_container_width=True)
+            fig = grafico_top_categorias(df_filtrado)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
         
         # FILA 2: Barras Apiladas
         st.subheader("📊 Análisis Detallado por Categoría")
-        st.plotly_chart(grafico_barras_apiladas(df_filtrado), use_container_width=True)
+        fig = grafico_barras_apiladas(df_filtrado)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
         
         # FILA 3: Análisis por Unidad
         st.subheader("🏢 Análisis por Unidad Organizacional")
         col1, col2 = st.columns(2)
         with col1:
-            st.plotly_chart(grafico_cascada_direccion(df_filtrado), use_container_width=True)
+            fig = grafico_cascada_direccion(df_filtrado)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
         with col2:
-            top_dir = df_filtrado.groupby('DIRECCION')['MONTO_EN_USD'].sum().reset_index()
-            top_dir = top_dir[top_dir['DIRECCION'].notna() & (top_dir['DIRECCION'] != '')]
-            if not top_dir.empty:
-                fig = grafico_detalle_gerencia(df_filtrado, top_dir.iloc[0]['DIRECCION'])
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
+            if 'DIRECCION' in df_filtrado.columns:
+                top_dir = df_filtrado.groupby('DIRECCION')['MONTO_EN_USD'].sum().reset_index()
+                top_dir = top_dir[top_dir['DIRECCION'].notna() & (top_dir['DIRECCION'] != '')]
+                if not top_dir.empty:
+                    fig = grafico_detalle_gerencia(df_filtrado, top_dir.iloc[0]['DIRECCION'])
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
         
         # FILA 4: Tabla de Detalle
         st.subheader("📋 Detalle de Partidas")
         
-        columnas_mostrar = [
-            'CATEGORIA_LIMPIA', 'DETALLE', 'DIRECCION', 'GERENCIA',
-            'MONEDA', 'MONTO', 'MONTO_EN_USD', 'NRO_PDC'
-        ]
-        # Filtrar columnas que existen
-        columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
-        df_tabla = df_filtrado[columnas_existentes].copy()
-        df_tabla = df_tabla[df_tabla['MONTO_EN_USD'] > 0]
-        df_tabla = df_tabla.sort_values('MONTO_EN_USD', ascending=False)
-        df_tabla['MONTO_EN_USD'] = df_tabla['MONTO_EN_USD'].apply(lambda x: f"${x:,.2f}")
-        df_tabla['MONTO'] = df_tabla['MONTO'].apply(lambda x: f"{x:,.2f}")
+        columnas_mostrar = []
+        for col in ['CATEGORIA_LIMPIA', 'DETALLE', 'DIRECCION', 'GERENCIA', 'MONEDA', 'MONTO_PLAN_USD', 'MONTO_EN_USD', 'NRO_PDC']:
+            if col in df_filtrado.columns:
+                columnas_mostrar.append(col)
         
-        st.caption(f"📌 {len(df_tabla)} partidas encontradas")
-        st.dataframe(df_tabla, use_container_width=True, height=400)
+        if columnas_mostrar:
+            df_tabla = df_filtrado[columnas_mostrar].copy()
+            df_tabla = df_tabla[df_tabla['MONTO_EN_USD'] > 0]
+            df_tabla = df_tabla.sort_values('MONTO_EN_USD', ascending=False)
+            df_tabla['MONTO_EN_USD'] = df_tabla['MONTO_EN_USD'].apply(lambda x: f"${x:,.2f}")
+            if 'MONTO_PLAN_USD' in df_tabla.columns:
+                df_tabla['MONTO_PLAN_USD'] = df_tabla['MONTO_PLAN_USD'].apply(lambda x: f"{x:,.2f}")
+            
+            st.caption(f"📌 {len(df_tabla)} partidas encontradas")
+            st.dataframe(df_tabla, use_container_width=True, height=400)
         
         # Descarga CSV
         csv = df_filtrado.to_csv(index=False)
@@ -334,6 +363,14 @@ def main():
     
     else:
         st.info("📤 Por favor, carga un archivo Excel para comenzar el análisis")
+        st.markdown("""
+        ### 📋 Estructura del Archivo Requerida
+        - **CATEGORIA DE LA PARTIDA**: Categoría del gasto
+        - **MONTO PLAN USD**: Monto en la moneda de pago
+        - **MONEDA DE PAGO**: USD, BS/USD, BS, COP
+        - **DIRECCION**: COO, CFO, CTO, STAFF PRESIDENCIA (opcional)
+        - **DETALLE DE LA PARTIDA**: Descripción del gasto (opcional)
+        """)
 
 if __name__ == "__main__":
     main()
