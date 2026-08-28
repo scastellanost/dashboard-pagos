@@ -26,11 +26,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# MAPEO DE COLUMNAS (CORREGIDO - VERSIÓN FINAL)
+# FUNCIÓN PRINCIPAL - VERSIÓN ROBUSTA
 # ============================================
 
 def cargar_y_procesar_datos(file, tasa_bcv=40.0):
-    """Carga y procesa el archivo Excel"""
+    """Carga y procesa el archivo Excel - Versión robusta"""
     try:
         # Cargar archivo
         df = pd.read_excel(file, sheet_name='Plantilla', header=0)
@@ -38,47 +38,82 @@ def cargar_y_procesar_datos(file, tasa_bcv=40.0):
         # Limpiar nombres de columnas (eliminar espacios extra)
         df.columns = df.columns.str.strip()
         
-        # Mostrar columnas para debug (opcional)
-        # st.write("Columnas encontradas:", df.columns.tolist())
+        # Mostrar columnas encontradas para debug
+        st.info(f"📋 Columnas encontradas: {', '.join(df.columns.tolist())}")
         
-        # Renombrar columnas manualmente (más robusto)
-        df = df.rename(columns={
-            'DIRECCION EJECUTIVA (CHIEF)': 'DIRECCION_EJECUTIVA',
-            'DIRECCION': 'DIRECCION',
-            'GERENCIA': 'GERENCIA',
-            'EMPRESA': 'EMPRESA',
-            'NRO SOLICITUD en ODOO': 'NRO_SOLICITUD',
-            'NRO PDC': 'NRO_PDC',
-            'TIPO DE PARTIDA': 'TIPO_PARTIDA',
-            'NOMBRE DEL PROYECTO (solo para CAPEX)': 'PROYECTO',
-            'CATEGORIA DE LA PARTIDA': 'CATEGORIA',
-            'DETALLE DE LA PARTIDA': 'DETALLE',
-            'INFORMACION DEL GASTO': 'INFORMACION',
-            'MONTO PLAN USD': 'MONTO_PLAN_USD',  # ← CORREGIDO: ahora tiene el nombre completo
-            'MONEDA DE PAGO': 'MONEDA',
-            'FORMA DE PAGO': 'FORMA_PAGO',
-            'OBSERVACION': 'OBSERVACION',
-        })
+        # --- BUSCAR COLUMNA CATEGORIA ---
+        if 'CATEGORIA DE LA PARTIDA' in df.columns:
+            df['CATEGORIA'] = df['CATEGORIA DE LA PARTIDA']
+        else:
+            # Buscar cualquier columna que tenga "CATEGORIA"
+            col_cat = [col for col in df.columns if 'CATEGORIA' in col.upper()]
+            if col_cat:
+                df['CATEGORIA'] = df[col_cat[0]]
+                st.warning(f"⚠️ Usando columna '{col_cat[0]}' como CATEGORIA")
+            else:
+                st.error("❌ No se encontró ninguna columna de categoría")
+                return pd.DataFrame()
         
-        # Verificar si existe la columna MONTO_PLAN_USD
-        if 'MONTO_PLAN_USD' not in df.columns:
-            # Buscar cualquier columna que tenga "MONTO" en el nombre
-            columnas_monto = [col for col in df.columns if 'MONTO' in col.upper()]
-            if columnas_monto:
-                st.warning(f"⚠️ Usando columna '{columnas_monto[0]}' como MONTO")
-                df['MONTO_PLAN_USD'] = df[columnas_monto[0]]
+        # --- BUSCAR COLUMNA MONTO ---
+        if 'MONTO PLAN USD' in df.columns:
+            df['MONTO_PLAN_USD'] = df['MONTO PLAN USD']
+        else:
+            # Buscar cualquier columna que tenga "MONTO"
+            col_monto = [col for col in df.columns if 'MONTO' in col.upper()]
+            if col_monto:
+                df['MONTO_PLAN_USD'] = df[col_monto[0]]
+                st.warning(f"⚠️ Usando columna '{col_monto[0]}' como MONTO")
             else:
                 st.error("❌ No se encontró ninguna columna de montos")
                 return pd.DataFrame()
         
-        # Verificar si existe la columna CATEGORIA
-        if 'CATEGORIA' not in df.columns:
-            columnas_categoria = [col for col in df.columns if 'CATEGORIA' in col.upper()]
-            if columnas_categoria:
-                df['CATEGORIA'] = df[columnas_categoria[0]]
+        # --- BUSCAR COLUMNA MONEDA ---
+        if 'MONEDA DE PAGO' in df.columns:
+            df['MONEDA'] = df['MONEDA DE PAGO']
+        else:
+            # Buscar cualquier columna que tenga "MONEDA"
+            col_moneda = [col for col in df.columns if 'MONEDA' in col.upper()]
+            if col_moneda:
+                df['MONEDA'] = df[col_moneda[0]]
+                st.warning(f"⚠️ Usando columna '{col_moneda[0]}' como MONEDA")
             else:
-                st.error("❌ No se encontró ninguna columna de categoría")
-                return pd.DataFrame()
+                # Si no hay moneda, asumir USD
+                st.warning("⚠️ No se encontró columna de moneda. Asumiendo USD")
+                df['MONEDA'] = 'USD'
+        
+        # --- BUSCAR OTRAS COLUMNAS (opcionales) ---
+        if 'DIRECCION' in df.columns:
+            df['DIRECCION'] = df['DIRECCION']
+        else:
+            col_dir = [col for col in df.columns if 'DIRECCION' in col.upper()]
+            if col_dir:
+                df['DIRECCION'] = df[col_dir[0]]
+            else:
+                df['DIRECCION'] = 'NO ESPECIFICADA'
+        
+        if 'DETALLE DE LA PARTIDA' in df.columns:
+            df['DETALLE'] = df['DETALLE DE LA PARTIDA']
+        else:
+            col_det = [col for col in df.columns if 'DETALLE' in col.upper()]
+            if col_det:
+                df['DETALLE'] = df[col_det[0]]
+            else:
+                df['DETALLE'] = 'SIN DETALLE'
+        
+        if 'GERENCIA' in df.columns:
+            df['GERENCIA'] = df['GERENCIA']
+        else:
+            df['GERENCIA'] = 'SIN GERENCIA'
+        
+        if 'NRO PDC' in df.columns:
+            df['NRO_PDC'] = df['NRO PDC']
+        else:
+            df['NRO_PDC'] = 'SIN PDC'
+        
+        if 'NRO SOLICITUD en ODOO' in df.columns:
+            df['NRO_SOLICITUD'] = df['NRO SOLICITUD en ODOO']
+        else:
+            df['NRO_SOLICITUD'] = 'SIN SOLICITUD'
         
         # Limpiar datos
         df = df.dropna(subset=['CATEGORIA'], how='all')
@@ -118,7 +153,7 @@ def cargar_y_procesar_datos(file, tasa_bcv=40.0):
         
     except Exception as e:
         st.error(f"❌ Error al procesar: {str(e)}")
-        st.info("💡 Asegúrate de que el archivo tenga las columnas: CATEGORIA DE LA PARTIDA, MONTO PLAN USD, MONEDA DE PAGO")
+        st.info("💡 Asegúrate de que el archivo sea el correcto")
         return pd.DataFrame()
 
 # ============================================
@@ -202,7 +237,7 @@ def grafico_barras_apiladas(df):
 def grafico_cascada_direccion(df):
     """Gráfico de cascada por Dirección"""
     data = df.groupby('DIRECCION')['MONTO_EN_USD'].sum().reset_index()
-    data = data[data['DIRECCION'].notna() & (data['DIRECCION'] != '')]
+    data = data[data['DIRECCION'].notna() & (data['DIRECCION'] != '') & (data['DIRECCION'] != 'NO ESPECIFICADA')]
     data = data.sort_values('MONTO_EN_USD', ascending=False)
     
     if data.empty:
@@ -218,12 +253,12 @@ def grafico_cascada_direccion(df):
 
 def grafico_detalle_gerencia(df, direccion):
     """Gráfico de detalle por Gerencia"""
-    if not direccion or direccion == 'TODAS':
+    if not direccion or direccion == 'TODAS' or direccion == 'NO ESPECIFICADA':
         return None
     
     data = df[df['DIRECCION'] == direccion]
     data = data.groupby('GERENCIA')['MONTO_EN_USD'].sum().reset_index()
-    data = data[data['GERENCIA'].notna() & (data['GERENCIA'] != '')]
+    data = data[data['GERENCIA'].notna() & (data['GERENCIA'] != '') & (data['GERENCIA'] != 'SIN GERENCIA')]
     data = data.sort_values('MONTO_EN_USD', ascending=False)
     
     if data.empty:
@@ -269,9 +304,7 @@ def main():
         with st.sidebar:
             tipo = st.selectbox('Tipo de Partida', ['TODOS', 'OPEX', 'CAPEX'])
             
-            direcciones = ['TODAS']
-            if 'DIRECCION' in df.columns:
-                direcciones = ['TODAS'] + sorted(df['DIRECCION'].dropna().unique().tolist())
+            direcciones = ['TODAS'] + sorted(df['DIRECCION'].dropna().unique().tolist())
             direccion = st.selectbox('Dirección', direcciones)
             
             categorias = ['TODAS'] + sorted(df['CATEGORIA_LIMPIA'].dropna().unique().tolist())
@@ -283,11 +316,11 @@ def main():
         
         if tipo != 'TODOS':
             df_filtrado = df_filtrado[df_filtrado['TIPO'] == tipo]
-        if direccion != 'TODAS' and 'DIRECCION' in df_filtrado.columns:
+        if direccion != 'TODAS':
             df_filtrado = df_filtrado[df_filtrado['DIRECCION'] == direccion]
         if categoria != 'TODAS':
             df_filtrado = df_filtrado[df_filtrado['CATEGORIA_LIMPIA'] == categoria]
-        if busqueda and 'DETALLE' in df_filtrado.columns:
+        if busqueda:
             busqueda_lower = busqueda.lower()
             df_filtrado = df_filtrado[
                 df_filtrado['DETALLE'].str.lower().str.contains(busqueda_lower, na=False) |
@@ -329,32 +362,30 @@ def main():
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
         with col2:
-            if 'DIRECCION' in df_filtrado.columns:
-                top_dir = df_filtrado.groupby('DIRECCION')['MONTO_EN_USD'].sum().reset_index()
-                top_dir = top_dir[top_dir['DIRECCION'].notna() & (top_dir['DIRECCION'] != '')]
-                if not top_dir.empty:
-                    fig = grafico_detalle_gerencia(df_filtrado, top_dir.iloc[0]['DIRECCION'])
-                    if fig:
-                        st.plotly_chart(fig, use_container_width=True)
+            top_dir = df_filtrado.groupby('DIRECCION')['MONTO_EN_USD'].sum().reset_index()
+            top_dir = top_dir[top_dir['DIRECCION'].notna() & (top_dir['DIRECCION'] != '') & (top_dir['DIRECCION'] != 'NO ESPECIFICADA')]
+            if not top_dir.empty:
+                fig = grafico_detalle_gerencia(df_filtrado, top_dir.iloc[0]['DIRECCION'])
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
         
         # FILA 4: Tabla de Detalle
         st.subheader("📋 Detalle de Partidas")
         
-        columnas_mostrar = []
-        for col in ['CATEGORIA_LIMPIA', 'DETALLE', 'DIRECCION', 'GERENCIA', 'MONEDA', 'MONTO_PLAN_USD', 'MONTO_EN_USD', 'NRO_PDC']:
-            if col in df_filtrado.columns:
-                columnas_mostrar.append(col)
+        columnas_mostrar = [
+            'CATEGORIA_LIMPIA', 'DETALLE', 'DIRECCION', 'GERENCIA',
+            'MONEDA', 'MONTO_PLAN_USD', 'MONTO_EN_USD', 'NRO_PDC'
+        ]
+        columnas_existentes = [col for col in columnas_mostrar if col in df_filtrado.columns]
         
-        if columnas_mostrar:
-            df_tabla = df_filtrado[columnas_mostrar].copy()
-            df_tabla = df_tabla[df_tabla['MONTO_EN_USD'] > 0]
-            df_tabla = df_tabla.sort_values('MONTO_EN_USD', ascending=False)
-            df_tabla['MONTO_EN_USD'] = df_tabla['MONTO_EN_USD'].apply(lambda x: f"${x:,.2f}")
-            if 'MONTO_PLAN_USD' in df_tabla.columns:
-                df_tabla['MONTO_PLAN_USD'] = df_tabla['MONTO_PLAN_USD'].apply(lambda x: f"{x:,.2f}")
-            
-            st.caption(f"📌 {len(df_tabla)} partidas encontradas")
-            st.dataframe(df_tabla, use_container_width=True, height=400)
+        df_tabla = df_filtrado[columnas_existentes].copy()
+        df_tabla = df_tabla[df_tabla['MONTO_EN_USD'] > 0]
+        df_tabla = df_tabla.sort_values('MONTO_EN_USD', ascending=False)
+        df_tabla['MONTO_EN_USD'] = df_tabla['MONTO_EN_USD'].apply(lambda x: f"${x:,.2f}")
+        df_tabla['MONTO_PLAN_USD'] = df_tabla['MONTO_PLAN_USD'].apply(lambda x: f"{x:,.2f}")
+        
+        st.caption(f"📌 {len(df_tabla)} partidas encontradas")
+        st.dataframe(df_tabla, use_container_width=True, height=400)
         
         # Descarga CSV
         csv = df_filtrado.to_csv(index=False)
@@ -365,6 +396,7 @@ def main():
         st.info("📤 Por favor, carga un archivo Excel para comenzar el análisis")
         st.markdown("""
         ### 📋 Estructura del Archivo Requerida
+        El archivo debe tener las siguientes columnas:
         - **CATEGORIA DE LA PARTIDA**: Categoría del gasto
         - **MONTO PLAN USD**: Monto en la moneda de pago
         - **MONEDA DE PAGO**: USD, BS/USD, BS, COP
